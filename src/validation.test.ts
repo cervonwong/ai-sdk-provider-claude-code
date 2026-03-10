@@ -607,3 +607,76 @@ describe('validateSessionId', () => {
     expect(validateSessionId(undefined as any)).toBeUndefined();
   });
 });
+
+describe('security validations', () => {
+  beforeEach(() => {
+    (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should reject pathToClaudeCodeExecutable with null bytes', () => {
+    const settings = { pathToClaudeCodeExecutable: '/usr/bin/claude\0malicious' };
+    const result = claudeCodeSettingsSchema.safeParse(settings);
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject debugFile with null bytes', () => {
+    const settings = { debugFile: '/tmp/debug\0attack.log' };
+    const result = claudeCodeSettingsSchema.safeParse(settings);
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept valid pathToClaudeCodeExecutable', () => {
+    const settings = { pathToClaudeCodeExecutable: '/usr/local/bin/claude' };
+    const result = claudeCodeSettingsSchema.safeParse(settings);
+    expect(result.success).toBe(true);
+  });
+
+  it('should accept valid debugFile', () => {
+    const settings = { debugFile: '/tmp/claude-debug.log' };
+    const result = claudeCodeSettingsSchema.safeParse(settings);
+    expect(result.success).toBe(true);
+  });
+
+  it('should warn about allowDangerouslySkipPermissions', () => {
+    const settings = { allowDangerouslySkipPermissions: true };
+    const result = validateSettings(settings);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('allowDangerouslySkipPermissions')])
+    );
+  });
+
+  it('should warn about bypassPermissions without allowDangerouslySkipPermissions', () => {
+    const settings = { permissionMode: 'bypassPermissions' as const };
+    const result = validateSettings(settings);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('bypassPermissions')])
+    );
+  });
+
+  it('should warn about sensitive extraArgs keys', () => {
+    const settings = {
+      extraArgs: { '--bypass-permissions': 'true', '--safe-flag': 'value' },
+    };
+    const result = validateSettings(settings);
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('--bypass-permissions')])
+    );
+  });
+
+  it('should not warn about safe extraArgs keys', () => {
+    const settings = {
+      extraArgs: { '--some-feature': 'value' },
+    };
+    const result = validateSettings(settings);
+    expect(result.valid).toBe(true);
+    const extraArgWarnings = result.warnings.filter((w) => w.includes('extraArgs'));
+    expect(extraArgWarnings).toHaveLength(0);
+  });
+});

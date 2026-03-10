@@ -122,6 +122,25 @@ const DEFAULT_INHERITED_ENV_VARS =
 
 const CLAUDE_ENV_VARS = ['CLAUDE_CONFIG_DIR'];
 
+/**
+ * Returns true when the value looks like a bash exported-function definition.
+ * Bash function exports typically have the form `() { ... }`, possibly with
+ * leading whitespace or tab characters. We reject any value whose trimmed
+ * representation starts with `()` to guard against known Shellshock-style
+ * environment-variable injection variants.
+ */
+function looksLikeBashFunction(value: string): boolean {
+  return value.trimStart().startsWith('()');
+}
+
+/**
+ * Returns true if the value contains a null byte, which could be used to
+ * truncate strings in C-based programs that receive these env vars.
+ */
+function containsNullByte(value: string): boolean {
+  return value.includes('\0');
+}
+
 function getBaseProcessEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   const allowedKeys = new Set([...DEFAULT_INHERITED_ENV_VARS, ...CLAUDE_ENV_VARS]);
@@ -132,7 +151,7 @@ function getBaseProcessEnv(): Record<string, string> {
       continue;
     }
 
-    if (value.startsWith('()')) {
+    if (looksLikeBashFunction(value) || containsNullByte(value)) {
       continue;
     }
 
@@ -140,6 +159,31 @@ function getBaseProcessEnv(): Record<string, string> {
   }
 
   return env;
+}
+
+/**
+ * Sanitises user-supplied environment variable records (`settings.env` and
+ * `sdkOptions.env`).  Drops entries whose values look like bash function
+ * exports or contain null bytes, matching the same safety checks applied by
+ * `getBaseProcessEnv`.
+ */
+function sanitizeUserEnv(
+  env: Record<string, string | undefined> | undefined
+): Record<string, string | undefined> | undefined {
+  if (!env) return undefined;
+
+  const clean: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value !== 'string') {
+      clean[key] = value; // undefined — used for deletion
+      continue;
+    }
+    if (looksLikeBashFunction(value) || containsNullByte(value)) {
+      continue; // silently drop dangerous values
+    }
+    clean[key] = value;
+  }
+  return clean;
 }
 
 const STREAMING_FEATURE_WARNING =
@@ -661,6 +705,18 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
     if (this.modelValidationWarning) {
       this.logger.warn(`Claude Code Model: ${this.modelValidationWarning}`);
     }
+
+    // Warn about security-sensitive settings
+    if (this.settings.allowDangerouslySkipPermissions) {
+      this.logger.warn(
+        '[claude-code] allowDangerouslySkipPermissions is enabled. All permission checks are bypassed. Only use in fully trusted, sandboxed environments.'
+      );
+    }
+    if (this.settings.permissionMode === 'bypassPermissions') {
+      this.logger.warn(
+        '[claude-code] permissionMode is set to bypassPermissions. Permission prompts are suppressed.'
+      );
+    }
   }
 
   get provider(): string {
@@ -1055,7 +1111,9 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
 
     if (this.settings.env !== undefined || sdkEnv !== undefined) {
       const baseEnv = getBaseProcessEnv();
-      opts.env = { ...baseEnv, ...this.settings.env, ...sdkEnv };
+      const sanitizedSettingsEnv = sanitizeUserEnv(this.settings.env);
+      const sanitizedSdkEnv = sanitizeUserEnv(sdkEnv);
+      opts.env = { ...baseEnv, ...sanitizedSettingsEnv, ...sanitizedSdkEnv };
     }
 
     // Native structured outputs (SDK 0.1.45+)

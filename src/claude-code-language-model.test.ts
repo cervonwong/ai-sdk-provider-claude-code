@@ -660,6 +660,120 @@ describe('ClaudeCodeLanguageModel', () => {
       }
     });
 
+    it('should filter bash function exports from base process env', async () => {
+      const originalProcessEnv = { ...process.env };
+      try {
+        // Direct function export
+        process.env.HOME = '() { evil; }';
+        // Leading whitespace variant
+        process.env.PATH = '  () { also evil; }';
+
+        const modelWithEnv = new ClaudeCodeLanguageModel({
+          id: 'sonnet',
+          settings: { env: { SAFE_VAR: 'ok' } },
+        });
+
+        const mockResponse = {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: 'result',
+              subtype: 'success',
+              session_id: 's-env-filter',
+              usage: { input_tokens: 0, output_tokens: 0 },
+            };
+          },
+        };
+        vi.mocked(mockQuery).mockReturnValue(mockResponse as any);
+
+        await modelWithEnv.doGenerate({
+          prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        } as any);
+
+        const call = vi.mocked(mockQuery).mock.calls[0]?.[0] as any;
+        expect(call?.options?.env?.HOME).toBeUndefined();
+        expect(call?.options?.env?.PATH).toBeUndefined();
+        expect(call?.options?.env?.SAFE_VAR).toBe('ok');
+      } finally {
+        process.env = originalProcessEnv;
+      }
+    });
+
+    it('should filter bash function exports from user-supplied env and sdkOptions.env', async () => {
+      const modelWithEnv = new ClaudeCodeLanguageModel({
+        id: 'sonnet',
+        settings: {
+          env: {
+            SAFE_VAR: 'ok',
+            EVIL_FUNC: '() { bad; }',
+            NULL_BYTE: 'value\0hidden',
+          },
+          sdkOptions: {
+            env: {
+              SDK_SAFE: 'fine',
+              SDK_EVIL: '\t() { danger; }',
+            },
+          },
+        } as any,
+      });
+
+      const mockResponse = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: 'result',
+            subtype: 'success',
+            session_id: 's-env-sanitize',
+            usage: { input_tokens: 0, output_tokens: 0 },
+          };
+        },
+      };
+      vi.mocked(mockQuery).mockReturnValue(mockResponse as any);
+
+      await modelWithEnv.doGenerate({
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      } as any);
+
+      const call = vi.mocked(mockQuery).mock.calls[0]?.[0] as any;
+      expect(call?.options?.env?.SAFE_VAR).toBe('ok');
+      expect(call?.options?.env?.EVIL_FUNC).toBeUndefined();
+      expect(call?.options?.env?.NULL_BYTE).toBeUndefined();
+      expect(call?.options?.env?.SDK_SAFE).toBe('fine');
+      expect(call?.options?.env?.SDK_EVIL).toBeUndefined();
+    });
+
+    it('should warn when allowDangerouslySkipPermissions is enabled', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        new ClaudeCodeLanguageModel({
+          id: 'sonnet',
+          settings: {
+            allowDangerouslySkipPermissions: true,
+            verbose: true,
+          },
+        });
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('allowDangerouslySkipPermissions')
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should warn when permissionMode is bypassPermissions', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        new ClaudeCodeLanguageModel({
+          id: 'sonnet',
+          settings: {
+            permissionMode: 'bypassPermissions',
+            verbose: true,
+          },
+        });
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('bypassPermissions'));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
     it('should preserve stderr collector when sdkOptions.stderr is set', async () => {
       const sdkStderr = vi.fn();
       const modelWithStderr = new ClaudeCodeLanguageModel({

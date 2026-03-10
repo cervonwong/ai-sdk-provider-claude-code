@@ -6,6 +6,13 @@ import { existsSync } from 'fs';
  * Uses Zod for type-safe validation following AI SDK patterns.
  */
 
+/**
+ * Rejects strings containing null bytes, which can truncate paths in
+ * C-based programs and cause path confusion attacks.
+ */
+const noNullBytes = (val: string) => !val.includes('\0');
+const noNullBytesMsg = { message: 'Value must not contain null bytes' };
+
 // Helper for Zod v3/v4 compatibility
 // Use a simple z.any() for functions to work with both versions
 const loggerFunctionSchema = z.object({
@@ -29,7 +36,7 @@ const loggerFunctionSchema = z.object({
  */
 export const claudeCodeSettingsSchema = z
   .object({
-    pathToClaudeCodeExecutable: z.string().optional(),
+    pathToClaudeCodeExecutable: z.string().refine(noNullBytes, noNullBytesMsg).optional(),
     customSystemPrompt: z.string().optional(),
     appendSystemPrompt: z.string().optional(),
     systemPrompt: z
@@ -166,7 +173,7 @@ export const claudeCodeSettingsSchema = z
       .optional(),
     verbose: z.boolean().optional(),
     debug: z.boolean().optional(),
-    debugFile: z.string().optional(),
+    debugFile: z.string().refine(noNullBytes, noNullBytesMsg).optional(),
     logger: z.union([z.literal(false), loggerFunctionSchema]).optional(),
     env: z.record(z.string(), z.string().optional()).optional(),
     additionalDirectories: z.array(z.string()).optional(),
@@ -331,6 +338,41 @@ export function validateSettings(settings: unknown): {
       warnings.push(
         "allowedTools includes 'Skill' but settingSources is not set. Skills require settingSources (e.g., ['user', 'project']) to load skill definitions."
       );
+    }
+
+    // Security-sensitive setting warnings
+    if (validSettings.allowDangerouslySkipPermissions) {
+      warnings.push(
+        'allowDangerouslySkipPermissions is enabled. All permission checks will be bypassed. Only use in fully trusted, sandboxed environments.'
+      );
+    }
+
+    if (
+      validSettings.permissionMode === 'bypassPermissions' &&
+      !validSettings.allowDangerouslySkipPermissions
+    ) {
+      warnings.push(
+        'permissionMode is bypassPermissions but allowDangerouslySkipPermissions is not set. The SDK may require both for full bypass.'
+      );
+    }
+
+    if (validSettings.extraArgs) {
+      const sensitiveArgPatterns = [
+        'permission',
+        'allow-dangerous',
+        'skip-permission',
+        'bypass',
+        'cwd',
+        'executable',
+      ];
+      for (const key of Object.keys(validSettings.extraArgs)) {
+        const lower = key.toLowerCase().replace(/[-_]/g, '');
+        if (sensitiveArgPatterns.some((p) => lower.includes(p.replace(/[-_]/g, '')))) {
+          warnings.push(
+            `extraArgs contains '${key}' which may override security-sensitive settings. Verify this is intentional.`
+          );
+        }
+      }
     }
 
     return { valid: true, warnings, errors };
