@@ -359,15 +359,15 @@ export function validateSettings(settings: unknown): {
     if (validSettings.extraArgs) {
       const sensitiveArgPatterns = [
         'permission',
-        'allow-dangerous',
-        'skip-permission',
+        'allowdangerous',
+        'skippermission',
         'bypass',
         'cwd',
         'executable',
       ];
       for (const key of Object.keys(validSettings.extraArgs)) {
         const lower = key.toLowerCase().replace(/[-_]/g, '');
-        if (sensitiveArgPatterns.some((p) => lower.includes(p.replace(/[-_]/g, '')))) {
+        if (sensitiveArgPatterns.some((p) => lower.includes(p))) {
           warnings.push(
             `extraArgs contains '${key}' which may override security-sensitive settings. Verify this is intentional.`
           );

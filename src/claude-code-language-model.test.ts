@@ -711,6 +711,7 @@ describe('ClaudeCodeLanguageModel', () => {
             env: {
               SDK_SAFE: 'fine',
               SDK_EVIL: '\t() { danger; }',
+              SDK_NULL: 'sdk\0null',
             },
           },
         } as any,
@@ -738,6 +739,7 @@ describe('ClaudeCodeLanguageModel', () => {
       expect(call?.options?.env?.NULL_BYTE).toBeUndefined();
       expect(call?.options?.env?.SDK_SAFE).toBe('fine');
       expect(call?.options?.env?.SDK_EVIL).toBeUndefined();
+      expect(call?.options?.env?.SDK_NULL).toBeUndefined();
     });
 
     it('should warn when allowDangerouslySkipPermissions is enabled', () => {

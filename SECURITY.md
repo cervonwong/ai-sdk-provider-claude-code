@@ -45,7 +45,7 @@ The provider uses an **allowlist** approach for environment variables passed to 
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do NOT open a public issue.**
-2. Email a description to the maintainer at the email listed in the npm package, or open a [GitHub Security Advisory](https://github.com/ben-vargas/ai-sdk-provider-claude-code/security/advisories/new).
+2. Open a [GitHub Security Advisory](https://github.com/ben-vargas/ai-sdk-provider-claude-code/security/advisories/new) (preferred), or contact the maintainer via the email listed in the [npm package page](https://www.npmjs.com/package/ai-sdk-provider-claude-code).
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
